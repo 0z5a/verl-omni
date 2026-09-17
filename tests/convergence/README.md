@@ -212,7 +212,11 @@ In GitHub Actions the baselines live in the `l4-convergence-baseline` artifact
    script for L4.
 2. Declare the real checkpoints, the real dataset shards, and the hardware shape
    the recipe genuinely needs. Do not lower `min_gpu_memory_gb` to make a case run
-   on unsuitable hardware.
+   on unsuitable hardware. `local_path` is only checked for existence, so also note
+   in the recipe when a checkpoint is **gated** (for example
+   `stabilityai/stable-diffusion-3.5-medium`) or needs a package that is not on
+   PyPI: the precondition cannot verify access, and `skipped` will otherwise look
+   like a missing download rather than a missing entitlement.
 3. Declare the convergence metric, its direction, the warmup/window, and a
    tolerance you can defend. `atol` carries the near-zero case; `rtol` carries the
    scale.
