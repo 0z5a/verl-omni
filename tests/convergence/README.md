@@ -242,8 +242,8 @@ be in `(0, 1]`.
 
 ### Recipe pitfalls
 
-Both of these were hit while validating this layer on real hardware, and both are
-silent-ish config traps rather than harness bugs:
+All of these were hit while validating this layer on real hardware. They are
+config and resource traps rather than harness bugs, and they cost real GPU hours:
 
 - **Do not null out `trainer.total_epochs`.** The diffusion trainer evaluates
   `len(train_dataloader) * trainer.total_epochs` before it consults
@@ -252,8 +252,36 @@ silent-ish config traps rather than harness bugs:
   `trainer.total_training_steps` alone; that is what L3 does too.
 - **Do not pass `+` for a key that already exists** (and vice versa). A `+key=`
   override fails when the key is already in the config, and a bare `key=` fails
-  for a key that is not. Verify the knob against the launcher's own config before
-  adding it.
+  for a key that is not. Use `++` when you are unsure; verify the knob against the
+  launcher's own config before adding it.
+- **DLO is the wrong offload mechanism on a shared device.** With
+  `enable_distributed_layerwise_offload=true`, `wake_up()` re-maps the engine's
+  whole saved CUDA VMM pool at once and raises
+  `CUDA Error: out of memory at cumem_allocator.cpp:163` during
+  `actor_rollout_update_weights`. Leaving DLO off and letting the launcher's
+  `layered_summon=True` stream weights layer-wise avoids that spike.
+- **Do not set `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`.** It conflicts
+  with vLLM-omni's cumem sleep/wake path: the worker OOMs at
+  `cumem_allocator.cpp:163` while gigabytes of the device are still reported free.
+- **The reward `enable_resource_pool=True` pool is disjoint from the actor pool.**
+  The GPU budget is `trainer.n_gpus_per_node + reward.reward_model.n_gpus_per_node`;
+  if the two sum to more than the devices given, the trainer fails with
+  `Total available GPUs N is less than total desired GPUs M`. Either budget the
+  extra card or drop the pool and accept that the reward engine's reservation
+  lands on a rank card.
+- **`text_encoder_tp_size` must be 1 or the tensor parallel size.** An
+  intermediate value is rejected, so TP=3 leaves the whole text encoder on one
+  rank; check the encoder's own head count before assuming a TP degree is usable.
+- **A free-memory floor that is too low converts `skipped` into a CUDA OOM.** At
+  TP=2 the Qwen-Image diffusion worker rank alone needs ~36.9 GiB on a 44.40 GiB
+  L20, and that footprint is weight-dominated: cutting the denoise steps, pinning
+  the diffusion engine's `max_num_seqs`, and halving `train_batch_size` did not
+  change the failure at all. Declare the real per-card requirement, and remember
+  that the check measures *free* memory, so a co-tenant makes a card unusable long
+  before its nominal capacity is reached.
+- **`param_offload=False` is a real lever for host RAM.** At TP=4 keeping the base
+  parameters on-card dropped the container's peak from 294.78 GB to 146 GiB, at
+  the cost of holding a parameter shard in VRAM.
 
 ## CI wiring
 
