@@ -24,7 +24,6 @@ recipe:
     - reward.reward_model.model_path={model:reward}
     - actor_rollout_ref.rollout.seed=42
     - trainer.total_training_steps=100
-    - trainer.total_epochs=null
     - trainer.save_freq=-1
     - trainer.test_freq=-1
     - trainer.log_val_generations=0

@@ -78,7 +78,7 @@ dataset:
 
 hardware:
   min_gpus: 3
-  min_gpu_memory_gb: 40
+  min_gpu_memory_gb: 40          # free memory each GPU must have at run start
   gpu_architectures: [sm89, sm90, sm100]
   min_free_disk_gb: 200
 
@@ -219,6 +219,21 @@ In GitHub Actions the baselines live in the `l4-convergence-baseline` artifact
 4. Run `MODE=preflight` to confirm the recipe is well-formed.
 5. Create the first baseline with `MODE=baseline` on the release runner, review the
    curve and its `env`/`contract` provenance, then rely on `MODE=verify`.
+
+### Recipe pitfalls
+
+Both of these were hit while validating this layer on real hardware, and both are
+silent-ish config traps rather than harness bugs:
+
+- **Do not null out `trainer.total_epochs`.** The diffusion trainer evaluates
+  `len(train_dataloader) * trainer.total_epochs` before it consults
+  `trainer.total_training_steps`, so `total_epochs=null` raises a `TypeError`
+  during dataloader setup. Leave `total_epochs` alone and set
+  `trainer.total_training_steps` alone; that is what L3 does too.
+- **Do not pass `+` for a key that already exists** (and vice versa). A `+key=`
+  override fails when the key is already in the config, and a bare `key=` fails
+  for a key that is not. Verify the knob against the launcher's own config before
+  adding it.
 
 ## CI wiring
 

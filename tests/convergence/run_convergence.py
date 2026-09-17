@@ -65,6 +65,7 @@ from .recipe_registry import (
 )
 from .report import (
     build_release_report,
+    case_result_from_payload,
     exit_code_for_status,
     load_case_results,
     write_release_report,
@@ -376,9 +377,20 @@ def _run_case(
     try:
         records = load_step_records(metrics_jsonl=metrics_jsonl, log_file=log_path)
     except CurveError as error:
+        # No usable curve.  The exit status still decides what happened: a crash
+        # that produced nothing is a failure, not merely unparseable output.
         result["evidence_level"] = EVIDENCE_RUN
-        result["status"] = "timeout" if timed_out else "invalid"
-        result["failure_reason"] = str(error)
+        if timed_out:
+            result["status"] = "timeout"
+            result["failure_reason"] = (
+                f"run exceeded the {timeout_minutes:.0f} minute budget and produced no step records: {error}"
+            )
+        elif exit_code not in (0, None):
+            result["status"] = "failed"
+            result["failure_reason"] = f"launcher exited with code {exit_code} before producing step records: {error}"
+        else:
+            result["status"] = "invalid"
+            result["failure_reason"] = str(error)
         return result
 
     result["evidence_level"] = EVIDENCE_RUN
@@ -559,7 +571,13 @@ def run_all(
         _print_case(result)
         results.append(result)
 
-    case_results = load_case_results(output_root / "current")
+    # Build the report from the cases that actually ran in this invocation.  Reading
+    # `current/` back from disk would silently fold stale results from an earlier,
+    # differently-filtered run into this run's release verdict.
+    case_results = [
+        case_result_from_payload(result, result_path=current_dir(output_root, recipe.case_id) / "result.json")
+        for recipe, result in zip(selected, results, strict=True)
+    ]
     report = build_release_report(case_results, commit_sha=commit_sha)
     write_release_report(report, output_root)
     return results, report
