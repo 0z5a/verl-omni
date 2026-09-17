@@ -35,6 +35,9 @@ recipe:
 models:
   policy:
     kind: real
+    # NOTE: this checkpoint is gated on Hugging Face. Provision it with an
+    # authenticated download (or a pre-staged local snapshot) before this case can
+    # leave `skipped`; the precondition only verifies that the local path exists.
     source: stabilityai/stable-diffusion-3.5-medium
     revision: main
     local_path: /models/stable-diffusion-3.5-medium
