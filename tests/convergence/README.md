@@ -220,6 +220,26 @@ In GitHub Actions the baselines live in the `l4-convergence-baseline` artifact
 5. Create the first baseline with `MODE=baseline` on the release runner, review the
    curve and its `env`/`contract` provenance, then rely on `MODE=verify`.
 
+### Tightening `min_improvement`
+
+`min_improvement` ships as `0.0`: no reviewed baseline exists yet, and an invented
+floor is indistinguishable from a real one. Once a release owner has produced and
+reviewed a baseline, derive the floor from it in one auditable step:
+
+```bash
+python3 -m tests.convergence.derive_thresholds \
+    --recipe tests/convergence/recipes/<case>.yaml \
+    --baseline outputs/l4_convergence/baseline/<case>/baseline.json \
+    --retention 0.5 --write
+```
+
+The proposal is `retention * baseline_improvement` on the recipe's driving metric
+(the first required tracked metric, or `--metric`), and `--write` rewrites exactly
+that one line. The tool **refuses** and exits non-zero when the baseline did not
+improve, did not measure an improvement, or lacks the driving metric, so a
+threshold can never be tightened from absent evidence. `retention` is validated to
+be in `(0, 1]`.
+
 ### Recipe pitfalls
 
 Both of these were hit while validating this layer on real hardware, and both are
