@@ -450,7 +450,7 @@ def collect_lora_params(
         layered_summon
         and base_sync_done
         and fsdp_version(module) == 1
-        and module.sharding_strategy == ShardingStrategy.NO_SHARD
+        and getattr(module, "sharding_strategy", None) == ShardingStrategy.NO_SHARD
     ):
         peft_model = getattr(module, "_fsdp_wrapped_module", module)
         return _collect_lora_params_non_layered(module, peft_model, adapter_name, base_sync_done=True)
