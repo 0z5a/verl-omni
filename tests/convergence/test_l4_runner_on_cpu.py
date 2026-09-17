@@ -220,6 +220,18 @@ def test_non_zero_launcher_exit_is_never_a_pass(workspace: dict) -> None:
     assert results[0]["curves"]["critic/rewards/mean"]["num_points"] == 8
 
 
+def test_crash_without_step_records_is_a_failure_not_invalid(workspace: dict) -> None:
+    """A launcher that dies before logging anything must be `failed`, not `invalid`."""
+    workspace["repo_root"].joinpath("launcher.sh").write_text(
+        '#!/usr/bin/env bash\necho "boom: config error" >&2\nexit 4\n', encoding="utf-8"
+    )
+    results, report = run(workspace, "verify")
+    assert results[0]["status"] == "failed"
+    assert "exited with code 4" in results[0]["failure_reason"]
+    assert results[0]["run"]["exit_code"] == 4
+    assert report["overall_status"] == "blocked"
+
+
 def test_timeout_is_reported_and_only_kills_its_own_process(workspace: dict) -> None:
     # The recipe keeps a realistic 1-minute budget; the runner's explicit
     # override is what makes this test fast.
@@ -267,6 +279,32 @@ def test_result_payload_records_provenance_and_command(workspace: dict) -> None:
     assert result["run"]["command"][1].endswith("launcher.sh")
     assert result["env"]["L4_TEST_MODEL"]
     assert json.dumps(result)  # every result must be a persistable artifact
+
+
+def test_selected_case_run_does_not_report_stale_cases(workspace: dict) -> None:
+    """A filtered run must not fold an earlier run's results into its verdict."""
+    run(workspace, "baseline")
+    # A second recipe that never runs in the filtered invocation.
+    other = recipe_document()
+    other["case_id"] = "synthetic_other_case"
+    workspace["registry"].joinpath("other.yaml").write_text(yaml.safe_dump(other), encoding="utf-8")
+
+    env = dict(workspace["env"])
+    recipes = load_registry(workspace["registry"])
+    results, report = run_all(
+        recipes=recipes,
+        repo_root=workspace["repo_root"],
+        output_root=workspace["output_root"],
+        mode="baseline",
+        case_ids=["synthetic_runner_case"],
+        env=env,
+        commit_sha="deadbeef",
+        timeout_override_minutes=None,
+        gpus=[fake_gpu()],
+    )
+    assert [item["case_id"] for item in results] == ["synthetic_runner_case"]
+    assert report["gated_cases"] == ["synthetic_runner_case"]
+    assert "synthetic_other_case" not in json.dumps(report)
 
 
 def test_exit_code_helper_matches_release_verdict() -> None:
