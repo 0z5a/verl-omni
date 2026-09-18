@@ -283,9 +283,35 @@ config and resource traps rather than harness bugs, and they cost real GPU hours
   change the failure at all. Declare the real per-card requirement, and remember
   that the check measures *free* memory, so a co-tenant makes a card unusable long
   before its nominal capacity is reached.
-- **`param_offload=False` is a real lever for host RAM.** At TP=4 keeping the base
-  parameters on-card dropped the container's peak from 294.78 GB to 146 GiB, at
-  the cost of holding a parameter shard in VRAM.
+- **`gpu_memory_utilization` cannot fix a sleep/wake OOM.** Level-1 sleep re-maps
+  the engine's **weights** pool (`allocator.wake_up(tags=["weights"])`), whose size
+  is set by the model, while `gpu_memory_utilization` only sizes the KV/workspace
+  reservation. A failing wake therefore does not respond to that knob at all.
+- **Budget the colocated actor and rollout engine together, not separately.** The
+  two must be resident at the same instant on the same card when the rollout stage
+  wakes. Measured for Qwen-Image on a 44.40 GiB L20: TP=2 leaves **24.32 GiB** of
+  actor resident (`After FSDP … memory used/total (GB): 24.32/44.40`) against
+  roughly **19 GiB** of engine weights to re-map, so 44.40 GiB is arithmetically
+  insufficient and the run dies with
+  `wake_up failed on a stage: CUDA Error: out of memory at cumem_allocator.cpp:163`.
+  Raising the tensor parallel degree shrinks both sides and is the fix; no batch,
+  canvas, prompt, or engine-slots knob moves it.
+- **`param_offload` is a two-sided trade, and neither setting is free.** At TP=4,
+  `param_offload=True` is what fits the *device*, because the launcher's
+  layer-wise summon keeps only a shard on card (shards loaded 9/9 in 6 s, and each
+  worker logged `Sleep Level 1: physically freed 33.64 GiB`) — but the offload then
+  needs roughly **317 GB of host RAM**. `param_offload=False` relieves host RAM
+  (peak ~146 GiB) and instead fills the card: all four ranks fail at orchestrator
+  init with `torch.OutOfMemoryError … Tried to allocate 108.00 MiB … of which
+  66.00 MiB is free`. Size the container for the setting you choose, and remember
+  that Ray kills workers above **95 % of the container cap**, so a TP=4 offload run
+  needs a cap of ~380 GiB or more.
+- **Re-check the capacity gate immediately before each mode, not once at startup.**
+  A `baseline` run is long enough that a window open at container-pick time can
+  close before the case starts. Pre-warming a 54 GB page cache took 40 minutes, and
+  during it a co-tenant grew from 12.4 GB to 31.5 GB on one selected card, so the
+  harness correctly reported `preconditions unmet: … capable=4 idle=3 of 4 visible`
+  only after all the setup work had been spent.
 
 ## CI wiring
 
