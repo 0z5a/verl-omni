@@ -287,15 +287,28 @@ config and resource traps rather than harness bugs, and they cost real GPU hours
   the engine's **weights** pool (`allocator.wake_up(tags=["weights"])`), whose size
   is set by the model, while `gpu_memory_utilization` only sizes the KV/workspace
   reservation. A failing wake therefore does not respond to that knob at all.
-- **Budget the colocated actor and rollout engine together, not separately.** The
-  two must be resident at the same instant on the same card when the rollout stage
-  wakes. Measured for Qwen-Image on a 44.40 GiB L20: TP=2 leaves **24.32 GiB** of
-  actor resident (`After FSDP … memory used/total (GB): 24.32/44.40`) against
-  roughly **19 GiB** of engine weights to re-map, so 44.40 GiB is arithmetically
-  insufficient and the run dies with
+- **Budget the colocated actor and rollout engine together, not separately, and do
+  not assume more tensor parallelism closes the gap.** The two must be resident at
+  the same instant on the same card when the rollout stage wakes. Measured for
+  Qwen-Image on a 44.40 GiB L20: the actor keeps **24.32 GiB** resident at TP=2 and
+  **31.80 GiB** at TP=4 (`After FSDP … memory used/total (GB)`), while the rollout
+  engine needs **33.75 GiB per rank** before sleep — a figure that is effectively
+  TP-invariant, because it is the engine's own transformer plus its pipeline
+  buffers, VAE and text encoder rather than the actor's parameters. The demand at
+  the wake is therefore 58-65 GiB, and the run dies with
   `wake_up failed on a stage: CUDA Error: out of memory at cumem_allocator.cpp:163`.
-  Raising the tensor parallel degree shrinks both sides and is the fix; no batch,
-  canvas, prompt, or engine-slots knob moves it.
+  TP=4 made the actor figure *worse* while the engine stayed the same, so TP=1/2/3/4
+  all fail here; no batch, canvas, prompt, or engine-slots knob moves it. Verify the
+  two residency numbers before choosing a card, and note that dropping the reward
+  judge entirely does not help, because the actor and the rollout engine are the
+  conflict.
+- **The actor is not fully released when the rollout stage wakes.** That is the
+  proximate cause above: at the wake the failing message names the *actor* process,
+  e.g. `GPU 1 has a total capacity of 44.40 GiB of which 2.69 MiB is free. Process
+  1642…`. The stack sets `self.rollout.sleep_level = 1` (a Level-1 sleep, which
+  keeps memory) and warns `Setting the sleep level to 1 may cause a memory
+  overflow`. A Level-2 sleep, or placing the rollout engine outside the actor's
+  pool, is what would actually fit this recipe on a 44.40 GiB card.
 - **`param_offload` is a two-sided trade, and neither setting is free.** At TP=4,
   `param_offload=True` is what fits the *device*, because the launcher's
   layer-wise summon keeps only a shard on card (shards loaded 9/9 in 6 s, and each
