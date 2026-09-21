@@ -116,7 +116,7 @@ def test_nft_tq_rows_and_old_policy_schedule(monkeypatch, step, refresh):
     assert trainer._train_sampled_batch(metrics, {}, meta) is meta
     trainer.on_step_end()
 
-    read.assert_called_once_with(keys=keys, partition_id="train")
+    read.assert_called_once_with(keys=keys, partition_id="train", select_fields=None)
     sent = captured["data"]
     assert list(sent.non_tensor_batch["uid"]) == uids
     assert list(sent.non_tensor_batch["sample_id"]) == keys
