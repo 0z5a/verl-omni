@@ -39,8 +39,12 @@ PPO_MINI_BATCH_SIZE=${PPO_MINI_BATCH_SIZE:-2}
 PPO_MICRO_BATCH_SIZE_PER_GPU=${PPO_MICRO_BATCH_SIZE_PER_GPU:-1}
 LORA_RANK=${LORA_RANK:-8}
 LORA_ALPHA=${LORA_ALPHA:-16}
-# Keep trainable adapter parameters in FP32, matching FSDP gradient reduction.
-LORA_DTYPE=${LORA_DTYPE:-float32}
+# Single-rank FSDP2 gradients are FP32; keep the original multi-rank default.
+if [ "${NUM_GPUS}" -eq 1 ]; then
+    LORA_DTYPE=${LORA_DTYPE:-float32}
+else
+    LORA_DTYPE=${LORA_DTYPE:-null}
+fi
 LORA_TARGET_MODULES=${LORA_TARGET_MODULES:-'["q_proj","k_proj","v_proj","o_proj"]'}
 LORA_TARGET_PARAMS=${LORA_TARGET_PARAMS:-'["gate_up_proj","down_proj"]'}
 TRAIN_BATCH_SIZE=${TRAIN_BATCH_SIZE:-4}
