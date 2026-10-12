@@ -1,6 +1,6 @@
 # GRPO-Guard Trainer
 
-Last updated: 06/30/2026
+Last updated: 10/12/2026
 
 This example shows how to post-train `Qwen-Image` with GRPO-Guard on an OCR-style image generation task. GRPO-Guard extends Flow-GRPO with a reverse-SDE proposal-mean drift correction and per-step loss rescaling for improved training stability.
 
@@ -60,6 +60,8 @@ bash examples/grpoguard_trainer/qwen_image/run_qwen_image_ocr_lora_v1.sh
 The V1 recipe keeps the V0 GRPO-Guard loss, SDE, LoRA, reward, and batch settings. It uses `main_diffusion_v1`, `model.algorithm=flow_grpo`, and `trainer.v1.trainer_mode=sync`. Set `NUM_GPUS_ACTOR_ROLLOUT_REWARD`, `ROLLOUT_TP`, and `REWARD_TP` for a different GPU layout; for example, `8`, `2`, and `4` respectively.
 
 See the [5090 V0/V1 results](qwen_image/results/20260927-5090-smoke/README.md) for step timing and OCR reward measurements.
+
+The [H100 V0/V1 validation](qwen_image/results/20261012-h100/README.md) records 100 updates per mode at 512×512 with ten denoising steps, including checkpoint checks and test limits.
 
 For three RTX 5090 GPUs, a separate candidate recipe uses two actor/rollout GPUs and one OCR reward GPU, with FSDP2 and rollout CPU offload:
 
